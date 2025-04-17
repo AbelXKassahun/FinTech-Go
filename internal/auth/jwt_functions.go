@@ -4,28 +4,39 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/AbelXKassahun/Digital-Wallet-Platform/internal/storage"
-	"github.com/AbelXKassahun/Digital-Wallet-Platform/utils"
+	"github.com/AbelXKassahun/Digital-Wallet-Platform/internal/utils"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 )
 
-// replace this in prod
+//  TODO: store the jti in redis
+
+type Claims struct {
+	UserID string `json:"user_id"`
+	Tier  string `json:"tier"`
+	Type string `json:"type"`
+	Expiration int64 `json:"exp"`
+	JTI string `json:"jti"`
+	jwt.RegisteredClaims
+}
+
 var jwtSecret = []byte(os.Getenv("JWT_SECRET"))
 
-func GenerateJWT(payload map[string]interface{}, expiration time.Duration) (string, error) {
+func GenerateJWT(payload Claims, expiration time.Duration) (string, error) {
 	jti := uuid.New().String()
 	header := map[string]string{
 		"alg": "HS256",
 		"typ": "JWT",
 	}
 
-	payload["exp"] = time.Now().Add(expiration).Unix()
-	payload["jti"] = jti
+	payload.Expiration = time.Now().Add(expiration).Unix()
+	payload.JTI = jti
 
 	headerJSON, err := json.Marshal(header)
 	if err != nil {
@@ -45,45 +56,63 @@ func GenerateJWT(payload map[string]interface{}, expiration time.Duration) (stri
 	return unsigned + "." + signature, nil
 }
 
-func VerifyJWT(w http.ResponseWriter, r *http.Request) bool {
-	tokenStr := utils.GetJWTFromRequest(w, r)
-
-	// verified_token, err := auth.VerifyJWT(token, r.Context())
-	token, err := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {
-		return jwtSecret, nil
-	})
-	
-    if err != nil  {
-        w.WriteHeader(500)
-		w.Write([]byte(err.Error()))
-		return false
-    } else if !token.Valid {
-		w.WriteHeader(401)
-		w.Write([]byte("Token is invalid"))
-		return false
+func VerifyJWT(w http.ResponseWriter, r *http.Request, isRefreshToken bool) (bool, *Claims) {
+	var tokenString string
+	if isRefreshToken {
+		var requestBody struct {
+			RefreshToken string `json:"refresh_token"`
+		}
+		err := json.NewDecoder(r.Body).Decode(&requestBody)
+		if err != nil || requestBody.RefreshToken == "" {
+			http.Error(w, "Invalid request: missing refresh_token", http.StatusBadRequest)
+			return false, nil
+		}
+		tokenString = requestBody.RefreshToken
+	} else {
+		tokenString = utils.GetJWTFromRequest(w, r)
 	}
 
-    // [To Do] - uncomment this code if you want to check if the token is blacklisted
+	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
+		// Validate the alg 
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		// Return the secret key used for signing tokens
+		return jwtSecret, nil
+	})
+	claims, ok := token.Claims.(*Claims)
+	if err != nil {
+		log.Printf("Token validation failed: %v", err)
+		if err == jwt.ErrSignatureInvalid {
+			http.Error(w, "Invalid token signature", http.StatusUnauthorized)
+			return false, nil
+		}
+		http.Error(w, "Invalid or expired token", http.StatusUnauthorized)
+		return false, nil
+	} else if !ok && !token.Valid {
+		log.Printf("Token claims invalid or token is not valid")
+		http.Error(w, "Invalid token claims", http.StatusUnauthorized)
+		return false, nil
+	}
 
-    // claims := token.Claims.(jwt.MapClaims)
-    // jti := claims["jti"].(string)
+	// [To Do] - uncomment this code if you want to check if the token is blacklisted
 
-    // blacklisted, err := IsBlacklisted(jti, r.Context())
-    // if blacklisted {
+	// claims := token.Claims.(jwt.MapClaims)
+	// jti := claims["jti"].(string)
+
+	// blacklisted, err := IsBlacklisted(jti, r.Context())
+	// if blacklisted {
 	// 	w.WriteHeader(401)
-    //     w.Write([]byte("Token is invalid"))
+	//     w.Write([]byte("Token is invalid"))
 	// 	return false
-    // }else if err != nil && !blacklisted {
-    //     w.WriteHeader(500)
-    //     w.Write([]byte(err.Error()))
+	// }else if err != nil && !blacklisted {
+	//     w.WriteHeader(500)
+	//     w.Write([]byte(err.Error()))
 	// 	return false
-    // } 
-	
-	w.Write([]byte("Token Verified"))
-	return true
+	// }
+
+	return true, claims
 }
-
-
 
 func Logout(tokenStr string, ctx context.Context) error {
 	token, _ := jwt.Parse(tokenStr, func(token *jwt.Token) (interface{}, error) {

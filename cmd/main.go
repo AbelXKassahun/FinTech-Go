@@ -7,10 +7,10 @@ import (
 	"github.com/AbelXKassahun/Digital-Wallet-Platform/internal/api"
 )
 
+var PORT = ":8080"
 func main() {
-
 	log.Printf("Listening at port 8080 \n")
-	if err := http.ListenAndServe(":8080", api.Routes()); err != nil {
+	if err := http.ListenAndServe(PORT, api.Routes()); err != nil {
 		panic(err)
 	}
 }
