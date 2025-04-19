@@ -4,8 +4,8 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
-	"strings"
 	"net/http"
+	"strings"
 )
 
 func Base64URLEncode(data []byte) string {
@@ -32,6 +32,7 @@ func GetJWTFromRequest(w http.ResponseWriter, r *http.Request) string {
 		w.Write([]byte("authorization header format must be Bearer {token}"))
 		return ""
 	}
+
 	token := strings.TrimPrefix(authHeader, prefix)
 	return token
 }

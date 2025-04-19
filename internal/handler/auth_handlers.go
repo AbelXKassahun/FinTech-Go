@@ -7,11 +7,15 @@ import (
 	"time"
 
 	"github.com/AbelXKassahun/Digital-Wallet-Platform/internal/auth"
+	"github.com/google/uuid"
 )
 
-// [To Do] - check if the user exists in SignUpHandler and SignInHandler
-// [To Do] - refactor the form validation and token response
-
+// [To Do]
+// check if the user exists in SignUpHandler and SignInHandler
+// refactor the form validation and token response
+// implement the logout handler
+// store user metadata (e.g., tier, last login, session history) in Redis hash structure.
+// get the user ip and device name
 
 type TokenResponse struct {
 	AccessToken  string `json:"access_token"`
@@ -45,9 +49,10 @@ func SignUpHandler(w http.ResponseWriter, r *http.Request) {
 
 	// [To Do] - check if the user exists
 
+	userID := uuid.New().String()
 	// generate the access token
-	accessToken, err := auth.GenerateJWT(auth.Claims{
-		UserID: "dummy",
+	accessToken, _, err := auth.GenerateJWT(auth.Claims{
+		UserID: userID,
 		Tier:  "basic",
 		Type:  "access_token",
 	}, 15*time.Minute)
@@ -58,8 +63,8 @@ func SignUpHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// generate the refresh token
-	refreshToken, err := auth.GenerateJWT(auth.Claims{
-		UserID: "dummy",
+	refreshToken, _, err := auth.GenerateJWT(auth.Claims{
+		UserID: userID,
 		Tier:  "basic",
 		Type:  "refresh_token",
 	}, 7*24*time.Hour)
@@ -112,8 +117,10 @@ func SignInHandler(w http.ResponseWriter, r *http.Request) {
 
 	// [To Do] - check if the user exists and validate the password here
 
-	accessToken, err := auth.GenerateJWT(auth.Claims{
-		UserID: "dummy",
+	userID := uuid.New().String()
+
+	accessToken, _, err := auth.GenerateJWT(auth.Claims{
+		UserID: userID,
 		Tier:  "basic",
 		Type:  "access_token",
 	}, 15*time.Minute)
@@ -123,8 +130,8 @@ func SignInHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	refreshToken, err := auth.GenerateJWT(auth.Claims{
-		UserID: "dummy",
+	refreshToken, _,  err := auth.GenerateJWT(auth.Claims{
+		UserID: userID,
 		Tier:  "basic",
 		Type:  "refresh_token",
 	}, 7*24*time.Hour)
@@ -149,6 +156,9 @@ func SignInHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func LogOutHandler(w http.ResponseWriter, r *http.Request) {
+
+}
 
 func RefreshHandler(w http.ResponseWriter, r *http.Request) {
 	log.Println("/auth/refresh called")
@@ -165,14 +175,15 @@ func RefreshHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Refresh token validated for user '%s'", claims.UserID)
 
-	newAccessToken, err := auth.GenerateJWT(*claims, 15*time.Minute)
+
+	newAccessToken, _, err := auth.GenerateJWT(*claims, 15*time.Minute)
 	if err != nil {
 		log.Printf("Error generating new access tokens during refresh: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 	
-	newRefreshToken, err := auth.GenerateJWT(*claims, 7*24*time.Hour)
+	newRefreshToken, _, err := auth.GenerateJWT(*claims, 7*24*time.Hour)
 	if err != nil {
 		log.Printf("Error generating new refresh tokens during refresh: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)

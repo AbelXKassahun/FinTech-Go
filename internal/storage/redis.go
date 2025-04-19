@@ -9,3 +9,4 @@ var RedisErr = redis.Nil
 var RedisDB = redis.NewClient(&redis.Options{
     Addr: "localhost:6379", // Redis address
 })
+

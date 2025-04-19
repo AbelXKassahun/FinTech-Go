@@ -2,17 +2,28 @@ package main
 
 import (
 	// "context"
-	"log"
-	"net/http"
-	"github.com/AbelXKassahun/Digital-Wallet-Platform/internal/api"
+	"fmt"
+	// "log"
+	// "net/http"
+
+	// "github.com/AbelXKassahun/Digital-Wallet-Platform/internal/api"
 )
 
 var PORT = ":8080"
 func main() {
-	log.Printf("Listening at port 8080 \n")
-	if err := http.ListenAndServe(PORT, api.Routes()); err != nil {
-		panic(err)
+	// log.Printf("Listening at port 8080 \n")
+	// if err := http.ListenAndServe(PORT, api.Routes()); err != nil {
+	// 	panic(err)
+	// }
+
+	ff := true
+	key := "outside"
+	
+	if ff {
+		key = "inside"
 	}
+
+	fmt.Println(key)
 }
 
 
