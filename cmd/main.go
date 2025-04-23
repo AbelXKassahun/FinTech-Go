@@ -1,56 +1,57 @@
 package main
 
 import (
-	// "context"
-	"fmt"
-	// "log"
-	// "net/http"
+	"context"
+	"log"
+	"net/http"
+	"os"
 
-	// "github.com/AbelXKassahun/Digital-Wallet-Platform/internal/api"
+
+	"github.com/AbelXKassahun/Digital-Wallet-Platform/internal/api"
+	"github.com/AbelXKassahun/Digital-Wallet-Platform/internal/storage"
 )
 
-var PORT = ":8080"
+// "github.com/AbelXKassahun/Digital-Wallet-Platform/internal/auth"
+
+
 func main() {
-	// log.Printf("Listening at port 8080 \n")
-	// if err := http.ListenAndServe(PORT, api.Routes()); err != nil {
-	// 	panic(err)
+	port := os.Getenv("APP_PORT")
+	ctx := context.Background()
+
+	// connecting to postgreSQL
+	if err := storage.InitPostgres(); err != nil {
+		storage.DB.Close()
+		log.Fatal("Error connecting to Postgres:", err)
+	}
+	log.Println("Connected to Postgres")
+	defer storage.DB.Close()
+
+	// connecting to redis
+	storage.InitRedis()
+	if _, err := storage.RedisDB.Ping(ctx).Result(); err != nil {
+		log.Fatal("Error connecting to Redis:", err)
+	}
+	log.Println("Connected to Redis")
+
+	log.Printf("Listening at port 8080 \n")
+	if err := http.ListenAndServe(":"+port, api.Routes()); err != nil {
+		panic(err)
+	}
+
+	// err := storage.RedisDB.HSet(context.Background(), "rate_token:1", map[string]interface{}{
+	// 	"tokens":    2,
+	// 	"MaxTokens": 3,
+	// 	"RefilRate": 0.5,
+	// 	// "LastRefilTime": time.Now(),
+	// }).Err()
+
+	// if err != nil {
+	// 	fmt.Println(err)
 	// }
 
-	ff := true
-	key := "outside"
-	
-	if ff {
-		key = "inside"
-	}
-
-	fmt.Println(key)
+	// token, err := storage.RedisDB.HGet(context.Background(), "rate_token:1", "tokens").Result()
+	// fmt.Println("token: ", token)
+	// if err != nil {
+	// 	fmt.Println("here")
+	// }
 }
-
-
-/*
-// dummy 
-	payload := map[string]interface{}{
-		"tier": "basic",
-	}
-	expiration := time.Minute * 15
-	// context := context.Background()
-	// fmt.Println(auth.GenerateJWT(payload, expiration))
-	// fmt.Println(auth.VerifyJWT("", context.Background()))
-
-	router := http.NewServeMux()
-	router.HandleFunc("GET /auth/get-jwt", func(w http.ResponseWriter, r *http.Request) {
-		jwt_token, err := auth.GenerateJWT(payload, expiration)
-		if err != nil {
-			w.WriteHeader(500)
-			w.Write([]byte("Couldn't generate jwt token"))
-			return
-		}
-
-		w.Write([]byte(jwt_token))
-	})
-
-	router.HandleFunc("GET /auth/verify-jwt", func(w http.ResponseWriter, r *http.Request) {
-		auth.VerifyJWT(w, r)
-	})
-
-*/

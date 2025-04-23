@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"time"
 
@@ -10,33 +11,57 @@ import (
 )
 
 type Rate_token struct {
-	tokens        float64
-	maxTokens     float64
-	refilRate     float64
-	lastRefilTime time.Time
+	Tokens        float64
+	MaxTokens     float64
+	RefilRate     float64
+	LastRefilTime time.Time
 }
 
 // called on signup
-func NewRateToken(ctx context.Context, jti string, expiration time.Duration, maxToken, refilRate float64) error {
+func NewRateToken(ctx context.Context, key string, expiration time.Duration, maxToken, refilRate float64) error {
 	// first check if there is a rate token for an access token
-	_, err := storage.RedisDB.HGet(ctx, "rate_token:"+jti, "tokens").Result()
+	val, err := storage.RedisDB.HGet(ctx, "rate_token:"+key, "tokens").Result()
 	if err != nil && err != storage.RedisErr { // an error occured when getting the rate token
 		return err
-	} else if err == storage.RedisErr { // there is no rate token
-		err := storage.RedisDB.HSet(ctx, "rate_token:"+jti,
-			Rate_token{
-				tokens:        maxToken - 1,
-				maxTokens:     maxToken,
-				refilRate:     refilRate,
-				lastRefilTime: time.Now(),
-			}, expiration).Err()
+	} else if err == storage.RedisErr && val == "" { // there is no rate token
+
+		rateMap := map[string]interface{}{
+			"tokens":          maxToken - 1,
+			"maxTokens":      maxToken,
+			"refilRate":      refilRate,
+			"lastRefilTime": time.Now().Format(time.RFC3339),
+		}
+		
+		_, err := storage.RedisDB.HSet(ctx, "rate_token:"+key, rateMap).Result()
 		if err != nil {
 			return err
 		}
-		err = storage.RedisDB.Expire(ctx, jti, expiration).Err()
+
+		wasSet, err := storage.RedisDB.Expire(ctx, "rate_token:"+key, expiration).Result()
 		if err != nil {
+			log.Println("error expiring redis hash")
 			return err
 		}
+
+		if wasSet {
+			log.Printf("Expiration set for key '%s' to %s\n", "rate_token:"+key, expiration)
+		} else {
+			log.Printf("Expiration could not be set for key '%s' (key might not exist?)\n", "rate_token:"+key)
+		}
+	
+		// checking the TTL (Time To Live)
+		ttl, err := storage.RedisDB.TTL(ctx, "rate_token:"+key).Result()
+		if err != nil {
+			log.Println("Error getting TTL:", err)
+		} else {
+			if ttl < 0 {
+				// TTL < 0 indicates no expiry (-1) or key doesn't exist (-2)
+				log.Printf("Key '%s' has no expiration (TTL: %s)\n", "rate_token:"+key, ttl)
+			} else {
+				log.Printf("Key '%s' will expire in approximately %s\n", "rate_token:"+key, ttl)
+			}
+		}
+		
 		return nil
 	}
 
@@ -44,13 +69,17 @@ func NewRateToken(ctx context.Context, jti string, expiration time.Duration, max
 }
 
 // called on every request
-func CheckToken(ctx context.Context, jti string) (bool, error) {
-	token, err := storage.RedisDB.HGet(ctx, "rate_token:"+jti, "tokens").Result()
-	if err != nil {
+func CheckToken(ctx context.Context, key string) (bool, error) {
+	token, err := storage.RedisDB.HGet(ctx, "rate_token:"+key, "tokens").Result()
+	fmt.Println("token: ", token)
+
+	if err != nil && err != storage.RedisErr {
 		return false, err
+	} else if err == storage.RedisErr {
+		return false, storage.RedisErr
 	}
 
-	err = refillToken(ctx, jti)
+	err = refillToken(ctx, key)
 	if err != nil {
 		return false, err
 	}
@@ -60,28 +89,30 @@ func CheckToken(ctx context.Context, jti string) (bool, error) {
 		return false, err
 	}
 
-	if parsedToken < 1 {
+	if parsedToken < 1 { // true false (the user has exceeded the rate limit)
 		return false, nil
 	}
 
 	parsedToken--
-	err = storage.RedisDB.HSet(ctx, "rate_token:"+jti, "tokens", parsedToken).Err()
+	err = storage.RedisDB.HSet(ctx, "rate_token:"+key, "tokens", parsedToken).Err()
 	if err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-func refillToken(ctx context.Context, jti string) error {
+func refillToken(ctx context.Context, key string) error {
 	rn := time.Now()
 
-	token, err := storage.RedisDB.HGetAll(ctx, "rate_token:"+jti).Result()
+	token, err := storage.RedisDB.HGetAll(ctx, "rate_token:"+key).Result()
 	if err != nil {
 		return err
 	}
+	fmt.Println("rateMap", token)
 	// parsing fields to float from string
 	lastRefilTime, err := time.Parse(time.RFC3339, token["lastRefilTime"])
 	if err != nil {
+		fmt.Println("here time")
 		return err
 	}
 	refileRate, err := strconv.ParseFloat(token["refilRate"], 64)
@@ -104,7 +135,7 @@ func refillToken(ctx context.Context, jti string) error {
 		tokenCount = maxTokenCount
 	}
 
-	err = storage.RedisDB.HSet(ctx, "rate_token:"+jti, "tokens", tokenCount, "lastRefilTime", rn).Err()
+	err = storage.RedisDB.HSet(ctx, "rate_token:"+key, "tokens", tokenCount, "lastRefilTime", rn).Err()
 	if err != nil {
 		return err
 	}

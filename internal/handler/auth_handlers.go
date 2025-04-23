@@ -1,17 +1,20 @@
 package handler
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"time"
 
 	"github.com/AbelXKassahun/Digital-Wallet-Platform/internal/auth"
+	"github.com/AbelXKassahun/Digital-Wallet-Platform/internal/storage"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // [To Do]
-// check if the user exists in SignUpHandler and SignInHandler
 // refactor the form validation and token response
 // implement the logout handler
 // store user metadata (e.g., tier, last login, session history) in Redis hash structure.
@@ -47,14 +50,33 @@ func SignUpHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// [To Do] - check if the user exists
+	// check if the user exists
+	exists, err := checkUserExists(email)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	} else if exists {
+		w.Write([]byte("User already exists"))
+		return
+	}
 
 	userID := uuid.New().String()
+	hashedPassword, err := HashPassword(password)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	// save the user info to db
+	err = saveUserInfoToDB(userID, email, hashedPassword)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	// generate the access token
-	accessToken, _, err := auth.GenerateJWT(auth.Claims{
+	accessToken, claims, err := auth.GenerateJWT(auth.Claims{
 		UserID: userID,
-		Tier:  "basic",
-		Type:  "access_token",
+		Tier:   "basic",
+		Type:   "access_token",
 	}, 15*time.Minute)
 
 	if err != nil {
@@ -65,14 +87,17 @@ func SignUpHandler(w http.ResponseWriter, r *http.Request) {
 	// generate the refresh token
 	refreshToken, _, err := auth.GenerateJWT(auth.Claims{
 		UserID: userID,
-		Tier:  "basic",
-		Type:  "refresh_token",
+		Tier:   "basic",
+		Type:   "refresh_token",
 	}, 7*24*time.Hour)
 
 	if err != nil {
 		http.Error(w, "Error generating refresh token: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	jti := claims.ID
+	auth.NewRateToken(r.Context(), jti, time.Until(claims.ExpiresAt.Time), 5, 0.5)
 
 	tokens := TokenResponse{
 		AccessToken:  accessToken,
@@ -97,7 +122,7 @@ func SignInHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	err := r.ParseForm()
 	if err != nil {
 		http.Error(w, "Error parsing form", http.StatusBadRequest)
@@ -115,14 +140,23 @@ func SignInHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// [To Do] - check if the user exists and validate the password here
+	// check if the user exists and validate the password here
+
+	isValid, err := validateUserCredentials(email, password)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	} else if !isValid {
+		w.Write([]byte("Invalid email or password"))
+		return
+	}
 
 	userID := uuid.New().String()
 
 	accessToken, _, err := auth.GenerateJWT(auth.Claims{
 		UserID: userID,
-		Tier:  "basic",
-		Type:  "access_token",
+		Tier:   "basic",
+		Type:   "access_token",
 	}, 15*time.Minute)
 
 	if err != nil {
@@ -130,10 +164,10 @@ func SignInHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	refreshToken, _,  err := auth.GenerateJWT(auth.Claims{
+	refreshToken, _, err := auth.GenerateJWT(auth.Claims{
 		UserID: userID,
-		Tier:  "basic",
-		Type:  "refresh_token",
+		Tier:   "basic",
+		Type:   "refresh_token",
 	}, 7*24*time.Hour)
 
 	if err != nil {
@@ -155,6 +189,59 @@ func SignInHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 }
+func checkUserExists(email string) (bool, error) {
+	var fetchedEmail string
+
+	query := `SELECT email FROM users WHERE email = $1`
+	err := storage.DB.QueryRow(query, email).Scan(&fetchedEmail)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, fmt.Errorf("database error fetching the user email: %w", err)
+	}
+	return true, nil
+}
+
+func saveUserInfoToDB(userID string, email string, password string) error {
+	query := `INSERT INTO users (user_id, email, password_hash) VALUES ($1, $2, $3)`
+	_, err := storage.DB.Exec(query, userID, email, password)
+	if err != nil {
+		return fmt.Errorf("database error saving user: %w", err)
+	}
+	return nil
+}
+
+func validateUserCredentials(email string, password string) (bool, error) {
+	var fetchedEmail, fetchedPassword string
+
+	query := `SELECT email, password_hash FROM users WHERE email=$1`
+	err := storage.DB.QueryRow(query, email).Scan(&fetchedEmail, &fetchedPassword)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, fmt.Errorf("database error fetching user credentials: %w", err)
+	} else {
+		if !checkPasswordHash(password, fetchedPassword) {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+func checkPasswordHash(password, hash string) bool {
+    err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+    return err == nil
+}
+
+func HashPassword(password string) (string, error) {
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash password: %w", err)
+	}
+	return string(hashedPassword), nil
+}
 
 func LogOutHandler(w http.ResponseWriter, r *http.Request) {
 
@@ -168,13 +255,12 @@ func RefreshHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	ok, claims := auth.VerifyJWT(w, r, true)
 	if !ok {
 		return
 	}
 	log.Printf("Refresh token validated for user '%s'", claims.UserID)
-
 
 	newAccessToken, _, err := auth.GenerateJWT(*claims, 15*time.Minute)
 	if err != nil {
@@ -182,7 +268,7 @@ func RefreshHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
-	
+
 	newRefreshToken, _, err := auth.GenerateJWT(*claims, 7*24*time.Hour)
 	if err != nil {
 		log.Printf("Error generating new refresh tokens during refresh: %v", err)

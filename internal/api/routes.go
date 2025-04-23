@@ -17,10 +17,13 @@ func Routes() *http.ServeMux {
 
 	router.HandleFunc("/auth/sign-up", handler.SignUpHandler)
 	router.HandleFunc("/auth/refresh", handler.RefreshHandler)
-	router.HandleFunc("/auth/sign-in", handler.SignInHandler)
-	router.Handle("/service", middleware.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("You are authenticated"))
-	})))
+	router.Handle("/auth/sign-in", middleware.LogInRateLimitMiddleware(http.HandlerFunc(handler.SignInHandler)))
+	router.Handle("/services/calculate-fee",
+		middleWareChain(http.HandlerFunc(handler.CalculateFee),
+			middleware.RateLimitMiddleware,
+			middleware.AuthMiddleware,
+		),
+	)
 	return router
 }
 
@@ -31,3 +34,7 @@ func middleWareChain(h http.Handler, middlewares ...Middleware) http.Handler {
 	}
 	return h
 }
+
+// func dummyHandler(w http.ResponseWriter, r *http.Request) {
+// 	w.Write([]byte("You are authenticated"))
+// }
