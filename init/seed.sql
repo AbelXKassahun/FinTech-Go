@@ -62,8 +62,8 @@ INSERT INTO fee_configs (transaction_type, tier, base_percentage, min_fee, max_f
 INSERT INTO users (user_id, full_name, email, phone_number, password_hash, tier, last_login) 
 VALUES
 ('user123', 'Alice Johnson', 'alice.johnson@example.com', '+1234567890', 
-    'pAliceJohnson', 'Basic', '2025-04-22 10:00:00+00'),
+    '$2a$10$0hBN26eojcn0euNg7NBBKuv.GUK0MlBqlxzAdLrJDbHFIV8x5piaK', 'Basic', '2025-04-22 10:00:00+00'),
 ('user456', 'Bob Smith', 'bob.smith@example.com', '+0987654321', 
-    'pBobSmith', 'Premium', '2025-04-21 15:30:00+00'),
+    '$2a$10$bt.sKBhlphHhTTChBrdi7uZWeX2ibf41ZE857l95mD/MxaQ03CwW6', 'Premium', '2025-04-21 15:30:00+00'),
 ('user789', 'Charlie Davis', 'charlie.davis@example.com', '+1122334455', 
-    'pCharlieDavis', 'Enterprise', NULL);
+    '$2a$10$wsE02Soi6Z40h6xFTlDY9O2ZDF8tmPP5ij4TjS0dRYKvS7avu17di', 'Enterprise', NULL);

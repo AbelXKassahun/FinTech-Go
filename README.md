@@ -27,6 +27,10 @@
 - And also `init` is another bind mount folder for our postgres service, postgres uses it for initialization but only once after that it uses `/data` for persistence
 - So dont delete these folders
 --- 
+- docker exec -t postgres pg_dump -U user -d finTechDB > seed.sql
+- use the above command to get an sql dumb of your database that can be used to replicate your database
+- you can then put seed.sql inside /init to intialize your database on docker compose build 
+---
 # Project Structure so far
 <pre>
 <code>
